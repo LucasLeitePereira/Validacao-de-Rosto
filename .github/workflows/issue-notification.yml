@@ -24,12 +24,15 @@ jobs:
       - name: Send email via Resend
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MY_EMAIL: "lucasleitep15@gmail.com"
+          MANUS_EMAIL: ${{ secrets.MANUS_EMAIL }}
           ISSUE_TITLE: ${{ steps.issue_details.outputs.issue_title }}
           ISSUE_BODY: ${{ steps.issue_details.outputs.issue_body }}
           REPO_NAME: ${{ steps.issue_details.outputs.repo_name }}
           ISSUE_URL: ${{ steps.issue_details.outputs.issue_url }}
         run: |
+          # Agora usamos um remetente do seu domínio verificado
+          FROM_EMAIL="manus-bot@lucasleitepereira.com"
+          
           EMAIL_SUBJECT="[MANUS-TASK] Nova Issue: $REPO_NAME - $ISSUE_TITLE"
           EMAIL_BODY="Uma nova issue foi aberta no repositório '$REPO_NAME'.\n\n"
           EMAIL_BODY+="Título: $ISSUE_TITLE\n"
@@ -43,8 +46,8 @@ jobs:
             -H "Authorization: Bearer $RESEND_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{
-                  \"from\": \"onboarding@resend.dev\",
-                  \"to\": \"$MY_EMAIL\",
+                  \"from\": \"$FROM_EMAIL\",
+                  \"to\": \"$MANUS_EMAIL\",
                   \"subject\": \"$EMAIL_SUBJECT\",
                   \"text\": \"$EMAIL_BODY\"
                 }"
