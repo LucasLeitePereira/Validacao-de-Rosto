@@ -1,74 +1,80 @@
 import face_recognition
 import cv2
-import psycopg2
 import numpy as np
+import psycopg2
+from db_utils import get_db_connection, close_db_connection
 
-def abrirBancoDeDados():
+def get_face_encoding_from_db(user_name):
+    """Retrieves a user's face encoding from the database."""
+    conn, cur = get_db_connection()
+    if conn is None or cur is None:
+        print("Exiting program due to database connection error.")
+        return None
+
     try:
-        conn = psycopg2.connect(
-            host="",
-            port=,
-            dbname="",
-            user="",
-            password=""
-        )
-        cur = conn.cursor()
-        print("Banco de dados aberto")
-        return conn, cur
+        sql = "SELECT rostos.shape, rostos.dtype, rostos.data FROM rostos INNER JOIN conta ON rostos.id_rosto = conta.id_rosto WHERE conta.nome_conta = %s"
+        cur.execute(sql, (user_name,))
+        result = cur.fetchone()
+
+        if result:
+            shape_s, dtype_s, blob = result
+            shape = tuple(map(int, shape_s.split(",")))
+            return np.frombuffer(blob, dtype=dtype_s).reshape(shape)
+        else:
+            print(f"No face encoding found for user: {user_name}")
+            return None
     except psycopg2.Error as e:
-        print(f"Não conseguiu abrir o banco de dados: {e}")
-        return None, None
+        print(f"Database error during face encoding retrieval: {e}")
+        return None
+    finally:
+        close_db_connection(conn, cur)
 
-def fecharBancoDeDados(conn, cur):
-    if cur:
-        cur.close()
-    if conn:
-        conn.close()
-    print("Banco de dados fechado")
+def capture_current_face_encoding():
+    """Captures a face from the webcam and returns its encoding."""
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise IOError("Cannot open webcam")
 
-conn, cur = abrirBancoDeDados()
+    ret, frame = cap.read()
+    cap.release()
 
-if conn is None or cur is None:
-    print("Encerrando o programa devido a erro no banco de dados.")
-    exit(1)
+    if not ret:
+        raise RuntimeError("Failed to capture frame from webcam.")
 
-nomeBusca = input("Seu nome: ")
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face_encodings = face_recognition.face_encodings(rgb_frame)
 
-sql = "SELECT rostos.shape, rostos.dtype, rostos.data FROM rostos INNER JOIN conta ON rostos.id_rosto = conta.id_rosto WHERE conta.nome_conta = %s"
-cur.execute(sql, (nomeBusca,))
+    if not face_encodings:
+        raise ValueError("No face detected in the captured image.")
 
-shape_s, dtype_s, blob = cur.fetchone()
-shape = tuple(map(int, shape_s.split(",")))
-img_result_encoding = np.frombuffer(blob, dtype=dtype_s).reshape(shape)
+    return face_encodings[0]
 
-cap = cv2.VideoCapture(0)
-ret, frame = cap.read()
-cap.release()
+def validate_face(db_encoding, current_encoding):
+    """Compares two face encodings and returns True if they match, False otherwise."""
+    if db_encoding is None or current_encoding is None:
+        return False
+    
+    # Compare faces using face_recognition library
+    results = face_recognition.compare_faces([db_encoding], current_encoding)
+    return results[0]
 
-if not ret:
-    raise RuntimeError("Não conseguiu capturar o frame")
+def main():
+    user_name = input("Enter your name for validation: ")
 
-img_atual_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-img_atual_encoding = face_recognition.face_encodings(img_atual_rgb)[0]
+    db_face_encoding = get_face_encoding_from_db(user_name)
+    if db_face_encoding is None:
+        return
 
-result = face_recognition.compare_faces([img_atual_encoding], img_result_encoding)
-if (result[0] == True):
-    print("Acesso Liberado")
-else:
-    print("Acesso Negado")
+    try:
+        current_face_encoding = capture_current_face_encoding()
+        if validate_face(db_face_encoding, current_face_encoding):
+            print("Access Granted")
+        else:
+            print("Access Denied")
+    except (IOError, RuntimeError, ValueError) as e:
+        print(f"Error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
-fecharBancoDeDados(conn, cur)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()
