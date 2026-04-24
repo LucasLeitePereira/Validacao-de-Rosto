@@ -1,0 +1,54 @@
+name: Issue Notification to Manus
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  send_notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get issue details
+        id: issue_details
+        run: |
+          # Extrai informações da issue do payload do evento do GitHub
+          ISSUE_TITLE=$(jq -r .issue.title "$GITHUB_EVENT_PATH")
+          ISSUE_BODY=$(jq -r .issue.body "$GITHUB_EVENT_PATH")
+          REPO_NAME=$(jq -r .repository.full_name "$GITHUB_EVENT_PATH")
+          ISSUE_URL=$(jq -r .issue.html_url "$GITHUB_EVENT_PATH")
+
+          # Define as saídas para uso nos próximos passos
+          echo "issue_title=$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
+          echo "issue_body=$ISSUE_BODY" >> "$GITHUB_OUTPUT"
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
+          echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Send email via Resend
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MANUS_EMAIL: ${{ secrets.MANUS_EMAIL }}
+          ISSUE_TITLE: ${{ steps.issue_details.outputs.issue_title }}
+          ISSUE_BODY: ${{ steps.issue_details.outputs.issue_body }}
+          REPO_NAME: ${{ steps.issue_details.outputs.repo_name }}
+          ISSUE_URL: ${{ steps.issue_details.outputs.issue_url }}
+        run: |
+          # Monta o corpo do e-mail
+          EMAIL_SUBJECT="Nova Issue Aberta no Repositório: $REPO_NAME - $ISSUE_TITLE"
+          EMAIL_BODY="Uma nova issue foi aberta no repositório '$REPO_NAME'.\n\n"
+          EMAIL_BODY+="Título da Issue: $ISSUE_TITLE\n"
+          EMAIL_BODY+="Conteúdo da Issue:\n$ISSUE_BODY\n\n"
+          EMAIL_BODY+="Link da Issue: $ISSUE_URL\n\n"
+          EMAIL_BODY+="Instruções para a IA (Manus):\n"
+          EMAIL_BODY+="1. Crie uma nova branch para resolver esta issue.\n"
+          EMAIL_BODY+="2. Abra um Pull Request (PR) linkado a esta issue após a resolução.\n"
+
+          # Envia a requisição para a API do Resend
+          curl -X POST https://api.resend.com/emails \
+            -H "Authorization: Bearer $RESEND_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+                  \"from\": \"onboarding@resend.dev\",
+                  \"to\": \"$MANUS_EMAIL\",
+                  \"subject\": \"$EMAIL_SUBJECT\",
+                  \"text\": \"$EMAIL_BODY\"
+                }"
