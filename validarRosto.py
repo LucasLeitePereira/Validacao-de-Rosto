@@ -19,12 +19,18 @@ def abrirBancoDeDados():
         print(f"Não conseguiu abrir o banco de dados: {e}")
         return None, None
 
-def fecharBancoDeDados():
-    cur.close()
-    conn.close()
+def fecharBancoDeDados(conn, cur):
+    if cur:
+        cur.close()
+    if conn:
+        conn.close()
     print("Banco de dados fechado")
 
 conn, cur = abrirBancoDeDados()
+
+if conn is None or cur is None:
+    print("Encerrando o programa devido a erro no banco de dados.")
+    exit(1)
 
 nomeBusca = input("Seu nome: ")
 
@@ -51,7 +57,7 @@ if (result[0] == True):
 else:
     print("Acesso Negado")
 
-fecharBancoDeDados()
+fecharBancoDeDados(conn, cur)
 
 
 
