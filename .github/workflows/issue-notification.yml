@@ -1,4 +1,4 @@
-name: Issue Notification to Manus
+name: Issue Notification to Manus (HTML)
 
 on:
   issues:
@@ -11,17 +11,21 @@ jobs:
       - name: Get issue details
         id: issue_details
         run: |
-          ISSUE_TITLE="$(jq -r .issue.title "$GITHUB_EVENT_PATH")"
-          ISSUE_BODY="$(jq -r .issue.body "$GITHUB_EVENT_PATH")"
-          REPO_NAME="$(jq -r .repository.full_name "$GITHUB_EVENT_PATH")"
-          ISSUE_URL="$(jq -r .issue.html_url "$GITHUB_EVENT_PATH")"
-
+          # Extração segura para títulos (uma linha)
+          ISSUE_TITLE=$(jq -r .issue.title "$GITHUB_EVENT_PATH")
+          REPO_NAME=$(jq -r .repository.full_name "$GITHUB_EVENT_PATH")
+          ISSUE_URL=$(jq -r .issue.html_url "$GITHUB_EVENT_PATH")
+          
+          # Extração segura para o corpo (múltiplas linhas) usando delimitadores EOF
           echo "issue_title=$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
-          echo "issue_body=$ISSUE_BODY" >> "$GITHUB_OUTPUT"
           echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
+          
+          echo "issue_body<<EOF" >> "$GITHUB_OUTPUT"
+          jq -r .issue.body "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Send email via Resend
+      - name: Send HTML email via Resend
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MANUS_EMAIL: ${{ secrets.MANUS_EMAIL }}
@@ -30,24 +34,63 @@ jobs:
           REPO_NAME: ${{ steps.issue_details.outputs.repo_name }}
           ISSUE_URL: ${{ steps.issue_details.outputs.issue_url }}
         run: |
-          # Agora usamos um remetente do seu domínio verificado
           FROM_EMAIL="manus-bot@lucasleitepereira.com"
           
-          EMAIL_SUBJECT="[MANUS-TASK] Nova Issue: $REPO_NAME - $ISSUE_TITLE"
-          EMAIL_BODY="Uma nova issue foi aberta no repositório '$REPO_NAME'.\n\n"
-          EMAIL_BODY+="Título: $ISSUE_TITLE\n"
-          EMAIL_BODY+="Conteúdo:\n$ISSUE_BODY\n\n"
-          EMAIL_BODY+="Link: $ISSUE_URL\n\n"
-          EMAIL_BODY+="Instruções para o Manus:\n"
-          EMAIL_BODY+="1. Crie uma nova branch que resolve esta issue.\n"
-          EMAIL_BODY+="2. Abra um pull request linkado a issue.\n"
+          # Sanitização do corpo para o JSON do curl (escapar quebras de linha e aspas)
+          # Usamos python para garantir que o JSON fique perfeito
+          python3 -c "
+          import os, json, requests
 
-          curl -X POST https://api.resend.com/emails \
-            -H "Authorization: Bearer $RESEND_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{
-                  \"from\": \"$FROM_EMAIL\",
-                  \"to\": \"$MANUS_EMAIL\",
-                  \"subject\": \"$EMAIL_SUBJECT\",
-                  \"text\": \"$EMAIL_BODY\"
-                }"
+          issue_body = os.environ['ISSUE_BODY']
+          issue_title = os.environ['ISSUE_TITLE']
+          repo_name = os.environ['REPO_NAME']
+          issue_url = os.environ['ISSUE_URL']
+          manus_email = os.environ['MANUS_EMAIL']
+          api_key = os.environ['RESEND_API_KEY']
+
+          html_content = f'''
+          <html><body style=\"font-family:sans-serif;line-height:1.6;color:#333;\">
+            <div style=\"max-width:600px;margin:auto;border:1px solid #eee;padding:20px;border-radius:10px;\">
+              <h2 style=\"color:#2563eb;\">Nova Tarefa para Manus</h2>
+              <p>Olá <strong>Manus</strong>,</p>
+              <p>Uma nova issue foi detectada no GitHub e requer sua atenção.</p>
+              <table style=\"width:100%;border-collapse:collapse;margin:20px 0;\">
+                <tr><td style=\"padding:8px;border-bottom:1px solid #eee;\"><strong>Repositório:</strong></td><td style=\"padding:8px;border-bottom:1px solid #eee;\">{repo_name}</td></tr>
+                <tr><td style=\"padding:8px;border-bottom:1px solid #eee;\"><strong>Título:</strong></td><td style=\"padding:8px;border-bottom:1px solid #eee;\">{issue_title}</td></tr>
+                <tr><td style=\"padding:8px;border-bottom:1px solid #eee;\"><strong>Link:</strong></td><td style=\"padding:8px;border-bottom:1px solid #eee;\"><a href=\"{issue_url}\">Ver no GitHub</a></td></tr>
+              </table>
+              <div style=\"background:#f9fafb;padding:15px;border-left:4px solid #2563eb;margin:20px 0;\">
+                <strong>Conteúdo da Issue:</strong><br>{issue_body.replace('\\n', '<br>')}
+              </div>
+              <h3 style=\"color:#111827;\">Instruções Obrigatórias:</h3>
+              <ol>
+                <li>Analise a issue acima.</li>
+                <li>Crie uma nova <strong>branch</strong> para a solução.</li>
+                <li>Abra um <strong>Pull Request</strong> linkado à issue.</li>
+              </ol>
+              <p style=\"font-size:0.8em;color:#666;margin-top:30px;border-top:1px solid #eee;padding-top:10px;\">Enviado automaticamente por Manus Bot via Resend.</p>
+            </div>
+          </body></html>
+          '''
+
+          payload = {{
+              'from': f'Manus Bot <{FROM_EMAIL}>',
+              'to': [manus_email],
+              'subject': f'Tarefa para Manus: Resolver Issue em {{repo_name}}',
+              'html': html_content,
+              'headers': {{
+                  'X-Priority': '1 (Highest)',
+                  'X-MSMail-Priority': 'High'
+              }}
+          }}
+
+          r = requests.post(
+              'https://api.resend.com/emails',
+              headers={{'Authorization': f'Bearer {{api_key}}', 'Content-Type': 'application/json'}},
+              data=json.dumps(payload)
+          )
+          print(f'Status: {{r.status_code}}')
+          print(f'Response: {{r.text}}')
+          if r.status_code not in [200, 201]:
+              exit(1)
+          "
