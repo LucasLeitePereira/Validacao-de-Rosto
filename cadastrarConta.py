@@ -1,7 +1,6 @@
 import face_recognition
 import cv2
 import numpy as np
-import psycopg2
 from db_utils import get_db_connection, close_db_connection
 
 def capture_face_encoding():
@@ -26,38 +25,31 @@ def capture_face_encoding():
 
 def register_user_and_face(name, age, gender, face_encoding):
     """Registers user information and their face encoding in the database."""
-    conn, cur = get_db_connection()
-    if conn is None or cur is None:
+    client, collection = get_db_connection()
+    if client is None or collection is None:
         print("Exiting program due to database connection error.")
         return
 
     try:
-        # Convert face encoding to a format suitable for PostgreSQL
-        arr = np.array(face_encoding, dtype=np.float64)
-        shape = ",".join(map(str, arr.shape))
-        dtype = str(arr.dtype)
-        blob = arr.tobytes()
+        # Convert face encoding to a list for JSON serialization in MongoDB
+        face_encoding_list = face_encoding.tolist()
 
-        # Insert face encoding into 'rostos' table
-        cur.execute(
-            "INSERT INTO rostos (shape, dtype, data) VALUES (%s, %s, %s) RETURNING id_rosto",
-            (shape, dtype, psycopg2.Binary(blob))
-        )
-        id_rosto = cur.fetchone()[0]
+        # Create document to insert
+        user_document = {
+            "nome_conta": name,
+            "idade": age,
+            "sexo": gender,
+            "face_encoding": face_encoding_list
+        }
 
-        # Insert user account details into 'conta' table
-        sql = "INSERT INTO conta (nome_conta, idade, sexo, id_rosto) VALUES (%s, %s, %s, %s)"
-        cur.execute(sql, (name, age, gender, id_rosto))
-        conn.commit()
-        print(f"User {name} registered successfully with face ID {id_rosto}.")
+        # Insert user document into collection
+        result = collection.insert_one(user_document)
+        print(f"User {name} registered successfully with document ID {result.inserted_id}.")
 
-    except psycopg2.Error as e:
-        conn.rollback()
-        print(f"Database error during registration: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
     finally:
-        close_db_connection(conn, cur)
+        close_db_connection(client)
 
 def main():
     name = input("Enter your name: ")
