@@ -1,21 +1,20 @@
-import psycopg2
-from config import DB_CONFIG
+from pymongo import MongoClient
+from config import MONGO_CONFIG
 
 def get_db_connection():
-    """Establishes and returns a database connection and cursor."""
+    """Establishes and returns a MongoDB database connection and collection."""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        print("Database connection established.")
-        return conn, cur
-    except psycopg2.Error as e:
+        client = MongoClient(MONGO_CONFIG["uri"])
+        db = client[MONGO_CONFIG["db_name"]]
+        collection = db[MONGO_CONFIG["collection_name"]]
+        print("MongoDB connection established.")
+        return client, collection
+    except Exception as e:
         print(f"Error connecting to the database: {e}")
         return None, None
 
-def close_db_connection(conn, cur):
-    """Closes the database connection and cursor."""
-    if cur:
-        cur.close()
-    if conn:
-        conn.close()
-    print("Database connection closed.")
+def close_db_connection(client):
+    """Closes the MongoDB database connection."""
+    if client:
+        client.close()
+    print("MongoDB connection closed.")

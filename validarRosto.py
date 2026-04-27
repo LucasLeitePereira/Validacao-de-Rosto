@@ -1,33 +1,28 @@
 import face_recognition
 import cv2
 import numpy as np
-import psycopg2
 from db_utils import get_db_connection, close_db_connection
 
 def get_face_encoding_from_db(user_name):
-    """Retrieves a user's face encoding from the database."""
-    conn, cur = get_db_connection()
-    if conn is None or cur is None:
+    """Retrieves a user's face encoding from MongoDB."""
+    client, collection = get_db_connection()
+    if client is None or collection is None:
         print("Exiting program due to database connection error.")
         return None
 
     try:
-        sql = "SELECT rostos.shape, rostos.dtype, rostos.data FROM rostos INNER JOIN conta ON rostos.id_rosto = conta.id_rosto WHERE conta.nome_conta = %s"
-        cur.execute(sql, (user_name,))
-        result = cur.fetchone()
+        user_document = collection.find_one({"name": user_name})
 
-        if result:
-            shape_s, dtype_s, blob = result
-            shape = tuple(map(int, shape_s.split(",")))
-            return np.frombuffer(blob, dtype=dtype_s).reshape(shape)
+        if user_document and "face_encoding" in user_document:
+            return np.array(user_document["face_encoding"])
         else:
             print(f"No face encoding found for user: {user_name}")
             return None
-    except psycopg2.Error as e:
+    except Exception as e:
         print(f"Database error during face encoding retrieval: {e}")
         return None
     finally:
-        close_db_connection(conn, cur)
+        close_db_connection(client)
 
 def capture_current_face_encoding():
     """Captures a face from the webcam and returns its encoding."""
